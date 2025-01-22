@@ -1,0 +1,13 @@
+[project]
+name = "svg-to-openscad"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "bezier>=2024.6.20",
+    "matplotlib>=3.10.0",
+    "numpy>=2.2.2",
+    "parse>=1.20.2",
+    "svg-path>=6.3",
+]
