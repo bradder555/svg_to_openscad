@@ -151,6 +151,12 @@ class Polygon(object):
         for p in self.coords:
             sb += f"[{p.x:.2f},{p.y:.2f}],"
         return sb[:-1] + "]);"
+    
+    def to_openscad_circles(self):
+        sb = ""
+        for p in self.coords:
+            sb += f"\tc({p.x:.2f},{p.y:.2f});\n"
+        return sb
 
 def map_path(path):
     path = parse_path(path)
@@ -161,23 +167,9 @@ def map_path(path):
                 x: Move
                 pass  # We can ignore Moves
 
-            case x if type(x) is CubicBezier:
+            case x if type(x) in (CubicBezier, Line, Arc):
                 x: CubicBezier
-                ls = np.linspace(0.0, 1.0, int(x.length()) + 2)
-                for l in ls:
-                    p = Point.from_complex(x.point(l))
-                    this_poly.add_point(p)
-
-            case x if type(x) is Line:
-                x: Line
-                ls = np.linspace(0.0, 1.0, int(x.length()) + 2)
-                for l in ls:
-                    p = Point.from_complex(x.point(l))
-                    this_poly.add_point(p)
-
-            case x if type(x) is Arc:
-                x: Arc
-                ls = np.linspace(0.0, 1.0, int(x.length()) + 2)
+                ls = np.linspace(0.0, 1.0, int(x.length()*3) + 2)
                 for l in ls:
                     p = Point.from_complex(x.point(l))
                     this_poly.add_point(p)
@@ -229,7 +221,7 @@ if __name__ == "__main__":
                     continue
                 d = c - last
                 m = d.magnitude()
-                if m <= 0.3 and len(r) > 2:
+                if m < 0.1:
                     av = (c + last) * 0.5
                     clean = False
                     r = r[:-1]
@@ -243,8 +235,10 @@ if __name__ == "__main__":
 
     print("opening output file, converting to 'shapes' and converting to openscad format")
     with open("scadout.scad", "w") as scf:
+        scf.write(f"module c(x,y){{\ntranslate([x,y,0])circle($fn=12,d=1.75);\n}}")
+        scf.write(f"linear_extrude(4){{")
+
         for polygon in polygons:
-            if len(polygon.coords) < 2:
-                continue
-            scf.write(polygon.to_shape().to_openscad())
-            scf.write("\n")
+            scf.write(polygon.to_openscad_circles())
+
+        scf.write("}")
