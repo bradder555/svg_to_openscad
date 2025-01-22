@@ -7,6 +7,7 @@ import numpy as np
 import bezier
 import matplotlib.pyplot as plt
 import math
+from multiprocessing import pool as mp_pool
 
 import json
 from time import sleep
@@ -97,38 +98,50 @@ class Polygon(object):
     # we need a shape to work with so the polygon needs to be closed
     def to_shape(self):
         r2 = []
-        last = self.coords[0]
-        first = True
-        initial = 0
-        n = 0
-        for r in self.coords[1:]:
-            n = (r - last).normal()*0.8
-            dn = n.rotate_n90()
-            if first:
-                initial = last + dn
-                r2.append(initial)
-                first = False
-            r2.append(r + dn)
-            #r2.append(Point.from_xy(r.x + 1.0, r.y + 1.0))
-            last = r
-        r2.append(last + n * 0.5 + n.rotate_n90() * 0.8)
-        r2.append(last + n * 0.5 + n.rotate_90() * 0.8)
 
-        last = self.coords[-1]
-        first = True
-        for r in self.coords[-2::-1]:
-            n = (r - last).normal() * 0.8
-            dn = n.rotate_n90()
-            if first:
-                r2.append(last + dn)
-                first = False
-            r2.append(r+dn)
-            #r2.append(Point.from_xy(r.x + 1.0, r.y + 1.0))
-            last = r
+        if len(self.coords) == 2:
+            start = self.coords[0]
+            finish = self.coords[1]
+            n = (finish - start).normal()*0.8
+            r2.append(start + n.rotate_n90())
+            r2.append(finish + n.rotate_n90())
+            r2.append(finish + n.rotate_90())
+            r2.append(start + n.rotate_90())
+            pass
+        else:
+            last = self.coords[0]
+            first = True
+            initial = 0
+            n = 0
+            for r in self.coords[1:]:
+                n = (r - last).normal()*0.8
+                dn = n.rotate_n90()
+                if first:
+                    initial = last + dn
+                    r2.append(initial)
+                    first = False
+                r2.append(r + dn)
+                #r2.append(Point.from_xy(r.x + 1.0, r.y + 1.0))
+                last = r
+            if False:
+                r2.append(last + n + n.rotate_n90() * 0.8)
+                r2.append(last + n + n.rotate_90() * 0.8)
 
-        r2.append(last + n * 0.5 + n.rotate_n90() * 0.8)
-        r2.append(last + n * 0.5 + n.rotate_90() * 0.8)
-        r2.append(initial)
+            last = self.coords[-1]
+            first = True
+            for r in self.coords[-2::-1]:
+                n = (r - last).normal() * 0.8
+                dn = n.rotate_n90()
+                if first:
+                    r2.append(last + dn)
+                    first = False
+                r2.append(r+dn)
+                #r2.append(Point.from_xy(r.x + 1.0, r.y + 1.0))
+                last = r
+            if False:
+                r2.append(last + n + n.rotate_n90() * 0.8)
+                r2.append(last + n + n.rotate_90() * 0.8)
+
         op = Polygon()
         op.add_points(r2)
         return op
@@ -136,8 +149,45 @@ class Polygon(object):
     def to_openscad(self):
         sb = "polygon(["
         for p in self.coords:
-            sb += f"[{p.x:.5f},{p.y:.5f}],"
+            sb += f"[{p.x:.2f},{p.y:.2f}],"
         return sb[:-1] + "]);"
+
+def map_path(path):
+    path = parse_path(path)
+    this_poly = Polygon()
+    for segment in path:
+        match segment:
+            case x if type(x) is Move:
+                x: Move
+                pass  # We can ignore Moves
+
+            case x if type(x) is CubicBezier:
+                x: CubicBezier
+                ls = np.linspace(0.0, 1.0, int(x.length()) + 2)
+                for l in ls:
+                    p = Point.from_complex(x.point(l))
+                    this_poly.add_point(p)
+
+            case x if type(x) is Line:
+                x: Line
+                ls = np.linspace(0.0, 1.0, int(x.length()) + 2)
+                for l in ls:
+                    p = Point.from_complex(x.point(l))
+                    this_poly.add_point(p)
+
+            case x if type(x) is Arc:
+                x: Arc
+                ls = np.linspace(0.0, 1.0, int(x.length()) + 2)
+                for l in ls:
+                    p = Point.from_complex(x.point(l))
+                    this_poly.add_point(p)
+
+            case x if type(x) is Close:
+                x: Close
+                pass  # ignore
+            case x:
+                print(f"unexpected type {type(x)}")
+    return this_poly
 
 if __name__ == "__main__":
     print("opening the svg")
@@ -146,11 +196,9 @@ if __name__ == "__main__":
         root: Element  = ET.parse(svgf).getroot()
         print("finding all paths")
         paths = find_all(root, "path")
-        paths = [parse_path(x.attrib["d"]) for x in paths if x.attrib.get("d", False)]
+        paths = [x.attrib["d"] for x in paths if x.attrib.get("d", False)]
 
     print("svg closed")
-
-    polygons : list[Polygon] = []
 
     """
     plt.ion()
@@ -158,66 +206,45 @@ if __name__ == "__main__":
     ax = fig.add_subplot(111)
     """
     print("converting paths and segments into paths")
-    for path in paths:
-        this_poly = Polygon()
-        polygons.append(this_poly)
 
-        for segment in path:
-            match segment:
-                case x if type(x) is Move:
-                    x : Move
-                    pass # We can ignore Moves
 
-                case x if type(x) is CubicBezier:
-                    x : CubicBezier
-                    ls = np.linspace(0.0, 1.0, int(x.length())+2)
-                    for l in ls:
-                        p = Point.from_complex(x.point(l))
-                        this_poly.add_point(p)
-
-                case x if type(x) is Line:
-                    x : Line
-                    start = Point.from_complex(x.start)
-                    end = Point.from_complex(x.end)
-                    this_poly.add_point(start)
-                    this_poly.add_point(end)
-
-                case x if type(x) is Arc:
-                    x : Arc
-                    ls = np.linspace(0.0, 1.0, int(x.length())+2)
-                    for l in ls:
-                        p = Point.from_complex(x.point(l))
-                        this_poly.add_point(p)
-
-                case x if type(x) is Close:
-                    x : Close
-                    pass # ignore
-                case x:
-                    print(f"unexpected type {type(x)}")
+    with mp_pool.Pool(12) as pool:
+        polygons = pool.map(map_path, paths)
 
     print("finished parsing paths")
-    """
-    # optimise the polygons, if the end of one is near the start of the other, just make it the same one
-    poly_opt = []
-    working_poly = None
-    while len(polygons):
-        this_poly = polygons.pop(0)
-        if working_poly is None:
-            working_poly = this_poly
-            continue
-        
-        # get the magnitude between the start of this poly and the end of the last poly
-        working_poly_last: Point = working_poly.coords[-1]
-        this_poly_first: Point = this_poly.coords[0]
 
-        # subtract one from the other then find the magnitude (subtraction order doesn't matter)
-        poly_mag = (working_poly_last - this_poly_first).magnitude()
-        if poly_mag < 10:
-            print(f"the difference between the start and finish is {poly_mag}")
-    """
+    for p in polygons:
+        p.coords = [Point( round(x.x, 2), round(x.y,2)) for x in p.coords]
+    
+
+    for p in polygons:
+        while True:
+            clean = True
+            t = p.coords[::]
+            r = [t[0]]
+            last = None
+            for c in t:
+                if last is None:
+                    last = c
+                    continue
+                d = c - last
+                m = d.magnitude()
+                if m <= 0.3 and len(r) > 2:
+                    av = (c + last) * 0.5
+                    clean = False
+                    r = r[:-1]
+                    r.append(av)
+                else:
+                    r.append(c)
+                last = c
+            p.coords = r
+            if clean:
+                break
 
     print("opening output file, converting to 'shapes' and converting to openscad format")
     with open("scadout.scad", "w") as scf:
         for polygon in polygons:
+            if len(polygon.coords) < 2:
+                continue
             scf.write(polygon.to_shape().to_openscad())
             scf.write("\n")
