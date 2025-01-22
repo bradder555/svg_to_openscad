@@ -140,10 +140,15 @@ class Polygon(object):
         return sb[:-1] + "]);"
 
 if __name__ == "__main__":
+    print("opening the svg")
     with open("./blue wren.svg", "r") as svgf:
+        print("parsing the svg")
         root: Element  = ET.parse(svgf).getroot()
+        print("finding all paths")
         paths = find_all(root, "path")
         paths = [parse_path(x.attrib["d"]) for x in paths if x.attrib.get("d", False)]
+
+    print("svg closed")
 
     polygons : list[Polygon] = []
 
@@ -152,18 +157,20 @@ if __name__ == "__main__":
     fig = plt.figure()
     ax = fig.add_subplot(111)
     """
-
+    print("converting paths and segments into paths")
     for path in paths:
+        this_poly = Polygon()
+        polygons.append(this_poly)
+
         for segment in path:
             match segment:
                 case x if type(x) is Move:
                     x : Move
                     pass # We can ignore Moves
+
                 case x if type(x) is CubicBezier:
                     x : CubicBezier
                     ls = np.linspace(0.0, 1.0, int(x.length())+2)
-                    this_poly = Polygon()
-                    polygons.append(this_poly)
                     for l in ls:
                         p = Point.from_complex(x.point(l))
                         this_poly.add_point(p)
@@ -172,24 +179,44 @@ if __name__ == "__main__":
                     x : Line
                     start = Point.from_complex(x.start)
                     end = Point.from_complex(x.end)
-                    this_poly = Polygon()
-                    polygons.append(this_poly)
                     this_poly.add_point(start)
                     this_poly.add_point(end)
+
                 case x if type(x) is Arc:
                     x : Arc
                     ls = np.linspace(0.0, 1.0, int(x.length())+2)
-                    this_poly = Polygon()
-                    polygons.append(this_poly)
                     for l in ls:
                         p = Point.from_complex(x.point(l))
                         this_poly.add_point(p)
+
                 case x if type(x) is Close:
                     x : Close
                     pass # ignore
                 case x:
                     print(f"unexpected type {type(x)}")
 
+    print("finished parsing paths")
+    """
+    # optimise the polygons, if the end of one is near the start of the other, just make it the same one
+    poly_opt = []
+    working_poly = None
+    while len(polygons):
+        this_poly = polygons.pop(0)
+        if working_poly is None:
+            working_poly = this_poly
+            continue
+        
+        # get the magnitude between the start of this poly and the end of the last poly
+        working_poly_last: Point = working_poly.coords[-1]
+        this_poly_first: Point = this_poly.coords[0]
+
+        # subtract one from the other then find the magnitude (subtraction order doesn't matter)
+        poly_mag = (working_poly_last - this_poly_first).magnitude()
+        if poly_mag < 10:
+            print(f"the difference between the start and finish is {poly_mag}")
+    """
+
+    print("opening output file, converting to 'shapes' and converting to openscad format")
     with open("scadout.scad", "w") as scf:
         for polygon in polygons:
             scf.write(polygon.to_shape().to_openscad())
